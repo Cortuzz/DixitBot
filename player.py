@@ -7,5 +7,9 @@ class Player:
         self.player_score = 0
         self.game = None
         self.answer = False
+        self.is_right = False
+        self.picked_own_card = None
+        self.picked_card = None
+        self.cards = []
 
 

@@ -16,6 +16,10 @@ class BotInterface:
 
         vk = vk_api.VkApi(token=service_token)
         self.service_api = vk.get_api()
+        self.global_board = []
+
+        self.one_true = False
+        self.all_true = True
 
         self.api = api
         self.admin_id = 375795594
@@ -31,6 +35,9 @@ class BotInterface:
             self.add_player(player_id)
 
         player = self.get_player(player_id)
+
+        if self.define_key_word(player, command, args):
+            return
 
         if self.try_parse_album(player, command):
             return
@@ -63,33 +70,17 @@ class BotInterface:
         player = Player(player_id)
         self.players.update({player_id: player})
 
+    def get_results(self, game):
+        t = "Результаты:\n"
+        for pl in game.players:
+            t += self.get_name(pl) + ": " + str(pl.player_score) + "\n"
+        return t
+
     def results(self, player):
         if player.game is None:
             return "Вы не находитесь в игре."
-
-        t = "Результаты:\n"
-        for pl in player.game.players:
-            t += self.get_name(pl) + ": " + str(pl.player_score) + "\n"
-
+        t = self.get_results(player.game)
         self.api.response(t, player.id, self.chat_id, "", False)
-
-    def get_unique_tags(self, tags):
-        map = dict()
-
-        for card_tags_ind in range(len(tags)):
-            card_tags = tags[card_tags_ind]
-            for tag in card_tags:
-                if tag not in map:
-                    map.update({tag: [0, card_tags_ind + 1]})
-
-                map[tag][0] += 1
-
-        uniq_tags = []
-        for tag in map:
-            if map[tag][0] == 1:
-                uniq_tags.append([tag, map[tag][1]])
-
-        return uniq_tags
 
     def get_name(self, player):
         response = self.api.vk_api.users.get(access_token=self.token, user_ids=player.id)
@@ -110,28 +101,64 @@ class BotInterface:
                    "или создайте свою игру (пример: старт " + str(len(self.games) + 1) + ")" if t \
             else "Еще нет игр!\nСоздайте свою, написав старт 1"
 
-    def show_cards(self, game):
-        cards = game.take_cards(5)
-
-        cards_names = []
-        cards_tags = []
-        for card in cards:
-            cards_names.append(card[0])
-            cards_tags.append(card[1])
-        random_tags = self.get_unique_tags(cards_tags)
-
-        random_tag = random.choice(random_tags)
-
-        game.correct_card = random_tag[1]
-        parsed_attach = ""
-        for attach in cards_names:
-            parsed_attach += attach + ","
-
-        parsed_attach = parsed_attach[:-1]
+    def show_board_cards(self, game):
+        parsed_attach = []
 
         for player in game.players:
+            parsed_attach.append(player.picked_own_card)
+
+        random.shuffle(parsed_attach)
+        self.global_board = parsed_attach.copy()
+        parsed_attach = ','.join(parsed_attach)
+
+        for player in game.players:
+            if player == game.players[game.lead]:
+                continue
+
             self.api.response("", player.id, self.chat_id, parsed_attach, False)
-            self.api.response(random_tag[0], player.id, self.chat_id, "", True)
+            self.api.response("Какая из картинок - ведущего?\nКлючевая фраза: " +
+                              game.lead_phrase, player.id, self.chat_id, "", False)
+
+    def show_cards(self, game):
+        for player in game.players:
+            if player == game.players[game.lead]:
+                continue
+
+            parsed_attach = ""
+
+            for attach in player.cards:
+                parsed_attach += attach + ","
+
+            parsed_attach = parsed_attach[:-1]
+            self.api.response("", player.id, self.chat_id, parsed_attach, False)
+            self.api.response("Выберите наиболее подходящую картинку под фразу: \n" +
+                              game.lead_phrase, player.id, self.chat_id, "", True)
+
+    def define_key_word(self, player, number, word):
+        try:
+            game = player.game
+            if not game or game.players[game.lead] != player or not game.waiting_for_lead:
+                return False
+            pass
+            game.lead_phrase = ' '.join(word)
+            game.correct_card = player.cards[int(number) - 1]
+            player.picked_own_card = game.correct_card
+            player.cards.remove(player.cards[int(number) - 1])
+            game.waiting_for_lead = False
+            game.waiting_for_pixs = True
+
+            self.show_cards(game)
+            return True
+        except:
+            return False
+
+    def ask_for_word(self, game):
+        lead = game.players[game.lead]
+        game.waiting_for_lead = True
+
+        self.api.response("", lead.id, self.chat_id, game.players[game.lead].cards, False)
+        self.api.response("Вы - ведущий.\nВыберите номер картинки и фразу([номер] [фраза]).", lead.id, self.chat_id, "",
+                          False)
 
     def start_game(self, player, args=[None]):
         args = args[0]
@@ -139,14 +166,21 @@ class BotInterface:
             return self.show_games()
 
         if args is None and len(player.game.deck) == 0:
-            self.api.response("Не задан набор для игры.\nПопробуйте: vk.com/album-213713475_284294786", player.id, self.chat_id, "")
+            self.api.response("Не задан набор для игры.\nПопробуйте: vk.com/album-213713475_284294786", player.id,
+                              self.chat_id, "")
+            return None
+
+        if player.game is not None and player.game.game_started:
+            self.api.response("Вы уже в игре.", player.id, self.chat_id, "")
             return None
 
         if args is None and player.game.correct_card is None:
-            return self.show_cards(player.game)
+            for pl in player.game.players:
+                pl.cards = player.game.take_cards(5)
+                self.api.response("Игра началась!", pl.id, self.chat_id, "")
 
-        if player.game is not None:
-            self.api.response("Вы уже в игре.", player.id, self.chat_id, "")
+            player.game.game_started = True
+            self.ask_for_word(player.game)
             return None
 
         if int(args) > len(self.games):
@@ -158,7 +192,7 @@ class BotInterface:
             self.notify_players(player, self.games[int(args) - 1])
             player.game = self.games[int(args) - 1]
             (self.games[int(args) - 1]).players.append(player)
-            self.api.response("Вы присоединились к игре.", player.id, self.chat_id, "", False)
+            self.api.response("Вы присоединились к игре.", player.id, self.chat_id, "")
 
     def try_parse_album(self, player, link):
         try:
@@ -180,6 +214,46 @@ class BotInterface:
         except:
             return False
 
+    def find_player_by_card(self, card, game):
+        for player in game.players:
+            if player.picked_own_card == card:
+                return player
+
+    def calculate_points(self, game):
+        if not self.one_true or self.all_true:
+            for player in game.players:
+                if player == game.players[game.lead]:
+                    continue
+                player.player_score += 2
+            return
+
+        game.players[game.lead].player_score += 2
+        for player in game.players:
+            if player.is_right:
+                player.player_score += 3
+                continue
+            pl = self.find_player_by_card(player.picked_card, game)
+            if pl is not None:
+                pl.player_score += 1
+
+        self.check_end(game)
+
+    def finish_game(self, game):
+        self.one_true = False
+        self.all_true = True
+        text = "Игра закончена.\nТаблица рейтинга:\n" + self.get_results(game)
+
+        for player in game.players:
+            self.players.pop(player.id)
+            self.api.response(text, player.id, self.chat_id, "", None)
+        self.games.remove(game)
+
+    def check_end(self, game):
+        for player in game.players:
+            if player.player_score >= 40:
+                self.finish_game(game)
+                return
+
     def check_correct(self, player, card):
         card = card[0]
         if player.game.correct_card is None:
@@ -190,14 +264,41 @@ class BotInterface:
             return None
 
         player.answer = True
-        if player.game.correct_card == card:
-            player.player_score += 3
-            self.api.response("Карта угадана!" + "\nВаш счёт: " + str(player.player_score), player.id, self.chat_id, "", False)
+        if player.game.waiting_for_pixs:
+            player.picked_own_card = player.cards[card - 1]
+            player.cards.pop(card - 1)
+            self.api.response("Карта загадана.", player.id, self.chat_id, "", False)
             if player.game.check_next_round():
-                self.show_cards(player.game)
+                player.game.waiting_for_pixs = False
+                self.show_board_cards(player.game)
             return None
 
-        self.api.response("Карта не угадана!" + "\nВаш счёт: " + str(player.player_score), player.id, self.chat_id, "", False)
+        ########################################################
+        if self.global_board[card - 1] == player.picked_own_card:
+            player.answer = False
+            self.api.response("Нельзя выбрать свою карту.", player.id, self.chat_id, "", False)
+            return None
+
+        if player.game.correct_card == self.global_board[card - 1]:
+            player.is_right = True
+            self.one_true = True
+            self.api.response("Карта угадана!", player.id, self.chat_id, "", False)
+            if player.game.check_next_round():
+                self.calculate_points(player.game)
+                self.one_true = False
+                player.game.waiting_for_lead = True
+                player.game.change_lead()
+                self.ask_for_word(player.game)
+            return None
+
+        self.all_true = False
+        player.is_right = False
+        player.picked_card = self.global_board[card - 1]
+        self.api.response("Карта не угадана.", player.id, self.chat_id, "", False)
         if player.game.check_next_round():
-            self.show_cards(player.game)
+            self.calculate_points(player.game)
+            self.all_true = True
+            player.game.waiting_for_lead = True
+            player.game.change_lead()
+            self.ask_for_word(player.game)
         return None
