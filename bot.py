@@ -15,7 +15,7 @@ class Bot:
         if not self.debug:
             self.api = VkAPI(self.group_id, self.token)
 
-        self.interface = BotInterface(self.api)
+        self.interface = BotInterface(self.api, self.token)
         self.handler = self.api.get_handler()
 
     def run(self):
@@ -37,13 +37,13 @@ class Bot:
         args = request[1:]
 
         answer = self.interface.try_command(chat_id, command, player_id, *args)
+        if answer is None:
+            return
         text, attaches = None, None
 
         text = answer
         if len(answer) == 2:
             text, attaches = answer
-
-
 
         if text is not None:
             self.api.response(text, player_id, chat_id, attaches)

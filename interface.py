@@ -2,22 +2,22 @@ import locale
 import random
 import traceback
 
-import vk_api
-
 import API
+from game import Game
 from player import Player
 
 
 class BotInterface:
-    def __init__(self, api: API):
+    def __init__(self, api: API, token):
         locale.setlocale(locale.LC_ALL, '')
-        self.commands = {'старт': self.get_cards}
+        self.commands = {'старт': self.start_game, 'результаты': self.results}
 
         self.api = api
         self.admin_id = 375795594
-        self.cards_bias = 457239017 - 1
         self.players = dict()
+        self.games = []
         self.chat_id = None
+        self.token = token
 
     def try_command(self, chat_id, command, player_id, *args):
         self.chat_id = chat_id
@@ -26,6 +26,7 @@ class BotInterface:
             self.add_player(player_id)
 
         player = self.get_player(player_id)
+
         try:
             method = self.commands[command]
         except KeyError:
@@ -52,17 +53,26 @@ class BotInterface:
 
     def add_player(self, player_id):
         player = Player(player_id)
-        player.parse_deck()
         self.players.update({player_id: player})
 
-    def get_unique_tags(self, tags, names):
+    def results(self, player):
+        if player.game is None:
+            return "Вы не находитесь в игре."
+
+        t = "Результаты: "
+        for pl in player.game.players:
+            t += self.get_name(pl) + ":" + str(pl.player_score) + "\n"
+
+        self.api.response(t, player.id, self.chat_id, "", False)
+
+    def get_unique_tags(self, tags, data):
         map = dict()
 
         for card_tags_ind in range(len(tags)):
             card_tags = tags[card_tags_ind]
             for tag in card_tags:
                 if tag not in map:
-                    map.update({tag: [0, names[card_tags_ind]]})
+                    map.update({tag: [0, card_tags_ind + 1]})
 
                 map[tag][0] += 1
 
@@ -73,9 +83,27 @@ class BotInterface:
 
         return uniq_tags
 
-    def get_cards(self, player):
-        cards = player.take_cards(5)
+    def get_name(self, player):
+        response = self.api.vk_api.users.get(access_token=self.token, user_ids=player.id)
+        return response[0]['first_name'] + ' ' + response[0]['last_name']
 
+    def notify_players(self, notif_player, game):
+        name = self.get_name(notif_player)
+
+        for player in game.players:
+            self.api.response("Игрок " + name + " присоединился!", player.id, self.chat_id, "")
+
+    def show_games(self):
+        t = ""
+        for i in range(len(self.games)):
+            t += "Игра № " + str(i + 1) + " [" + str(len(self.games[i].players)) + "чел.]"
+
+        return t + "\nПрисоединитесь к существующей (пример: старт 1)\n" \
+                   "или создайте свою игру (пример: старт " + str(len(self.games) + 1) + ")" if t \
+            else "Еще нет игр!\nСоздайте свою, написав старт 1"
+
+    def show_cards(self, game):
+        cards = game.take_cards(5)
         cards_names = []
         cards_tags = []
         for card in cards:
@@ -91,26 +119,57 @@ class BotInterface:
         random_tags = self.get_unique_tags(cards_tags, cards_names)
         random_tag = random.choice(random_tags)
 
-        player.correct_card = random_tag[1]
-
+        game.correct_card = random_tag[1]
         parsed_attach = ""
         for attach in cards_names:
-            parsed_attach += "photo-" + str(self.api.id) + "_" + str(attach + self.cards_bias) + ","
+            parsed_attach += "photo-" + str(self.api.id) + "_" + str(attach + game.pixs_root) + ","
 
         parsed_attach = parsed_attach[:-1]
 
-        self.api.response("", player.id, self.chat_id, parsed_attach)
-        return random_tag[0], ""
+        for player in game.players:
+            self.api.response("", player.id, self.chat_id, parsed_attach, False)
+            self.api.response(random_tag[0], player.id, self.chat_id, "", True)
+
+    def start_game(self, player, args=[None]):
+        args = args[0]
+        if args is None and player.game is None:
+            return self.show_games()
+
+        if args is None and player.game.correct_card is None:
+            return self.show_cards(player.game)
+
+        if player.game is not None:
+            return "Вы уже в игре."
+
+        if int(args) > len(self.games):
+            game = Game(player)
+            self.games.append(game)
+            player.game = game
+            self.api.response("Игра создана.", player.id, self.chat_id, "")
+        else:
+            self.notify_players(player, self.games[int(args) - 1])
+            player.game = self.games[int(args) - 1]
+            (self.games[int(args) - 1]).players.append(player)
+            self.api.response("Вы присоединились к игре.", player.id, self.chat_id, "", False)
 
     def check_correct(self, player, card):
         card = card[0]
-        if player.correct_card is None:
-            return "Сначала вытяните карты."
+        if player.game.correct_card is None:
+            return "Сначала начните игру."
 
-        if player.correct_card == card:
-            player.correct_card = None
+        if player.answer:
+            self.api.response("Вы уже отвечали в этом раунде.", player.id, self.chat_id, "", False)
+            return None
+
+        player.answer = True
+        if player.game.correct_card == card:
             player.player_score += 3
-            return "Карта угадана!" + "\nВаш счёт: " + str(player.player_score)
+            self.api.response("Карта угадана!" + "\nВаш счёт: " + str(player.player_score), player.id, self.chat_id, "", False)
+            if player.game.check_next_round():
+                self.show_cards(player.game)
+            return None
 
-        player.correct_card = None
-        return "Карта не угадана, попробуйте снова." + "\nВаш счёт: " + str(player.player_score)
+        self.api.response("Карта не угадана!" + "\nВаш счёт: " + str(player.player_score), player.id, self.chat_id, "", False)
+        if player.game.check_next_round():
+            self.show_cards(player.game)
+        return None

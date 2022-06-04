@@ -1,3 +1,5 @@
+from vk_api import vk_api
+
 from bot import Bot
 
 api_data = open("api_data.txt")

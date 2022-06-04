@@ -1,7 +1,7 @@
 import random
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
-
+from keyboards import start_keyboard, game_keyboard
 
 class VkAPI:
     def __init__(self, group_id, token, debug_mode=False):
@@ -28,17 +28,18 @@ class VkAPI:
     def get_handler(self):
         return self.long_poll.listen()
 
-    def response(self, text, user_id, chat_id, attach):
-        try:
-            self.vk_api.messages.send(random_id=random.randint(-2000000, 2000000),
-                                      chat_id=chat_id,
-                                      message=text,
-                                      attachment=attach)
-        except vk_api.exceptions.ApiError:
-            self.vk_api.messages.send(random_id=random.randint(-2000000, 2000000),
-                                      user_id=user_id,
-                                      message=text,
-                                      attachment=attach)
+    def response(self, text, user_id, chat_id, attach, flag=None):
+        payload = None
+        if flag is None:
+            payload = start_keyboard
+        elif flag:
+            payload = game_keyboard
+
+        self.vk_api.messages.send(random_id=random.randint(-2000000, 2000000),
+                                  user_id=user_id,
+                                  message=text,
+                                  attachment=attach,
+                                  keyboard=payload)
 
 
 class DebugAPI:
