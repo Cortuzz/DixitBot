@@ -31,19 +31,22 @@ class Bot:
             self.get_response(request, user_id, chat_id)
 
     def get_response(self, request, player_id, chat_id):
-        request = request.split()
+        try:
+            request = request.split()
 
-        command = request[0]
-        args = request[1:]
+            command = request[0]
+            args = request[1:]
 
-        answer = self.interface.try_command(chat_id, command, player_id, *args)
-        if answer is None:
-            return
-        text, attaches = None, None
+            answer = self.interface.try_command(chat_id, command, player_id, *args)
+            if answer is None:
+                return
+            text, attaches = None, None
 
-        text = answer
-        if len(answer) == 2:
-            text, attaches = answer
+            text = answer
+            if len(answer) == 2:
+                text, attaches = answer
 
-        if text is not None:
-            self.api.response(text, player_id, chat_id, attaches)
+            if text is not None:
+                self.api.response(text, player_id, chat_id, attaches)
+        except:
+            pass
