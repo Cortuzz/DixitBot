@@ -59,9 +59,9 @@ class BotInterface:
         if player.game is None:
             return "Вы не находитесь в игре."
 
-        t = "Результаты: "
+        t = "Результаты:\n"
         for pl in player.game.players:
-            t += self.get_name(pl) + ":" + str(pl.player_score) + "\n"
+            t += self.get_name(pl) + ": " + str(pl.player_score) + "\n"
 
         self.api.response(t, player.id, self.chat_id, "", False)
 
