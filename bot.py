@@ -4,18 +4,18 @@ from interface import BotInterface
 
 
 class Bot:
-    def __init__(self, group_id, token, debug):
+    def __init__(self, group_id, token, service_token, debug):
         self.group_id = group_id
         self.token = token
         self.debug = debug
-        self.cards_bias = 457239017 - 1
+        self.service_token = service_token
 
         self.api = DebugAPI(self.group_id, self.token)
 
         if not self.debug:
             self.api = VkAPI(self.group_id, self.token)
 
-        self.interface = BotInterface(self.api, self.token)
+        self.interface = BotInterface(self.api, self.token, self.service_token)
         self.handler = self.api.get_handler()
 
     def run(self):

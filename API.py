@@ -3,13 +3,14 @@ import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from keyboards import start_keyboard, game_keyboard
 
+
 class VkAPI:
     def __init__(self, group_id, token, debug_mode=False):
         self.id = group_id
         self.token = token
         self.debug_mode = debug_mode
 
-        self.vk = vk_api.VkApi(token=self.token)
+        self.vk = vk_api.VkApi(token=self.token, scope='photos')
         self.long_poll = VkBotLongPoll(self.vk, self.id)
         self.vk_api = self.vk.get_api()
 

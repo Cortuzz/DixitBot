@@ -4,23 +4,16 @@ from random import shuffle
 class Game:
     def __init__(self, player):
         self.players = [player]
-        self.pixs_root = 457239017 - 1
         self.correct_card = None
         self.card_number = 0
         self.deck = []
 
-        self.parse_deck()
-
-    def parse_deck(self):
-        with open("words.txt") as w:
-            for line in w:
-                self.deck.append(line.split("\t"))
+    def set_album(self, items):
+        self.deck = []
+        for item in items:
+            self.deck.append(["photo" + str(item['owner_id']) + "_" + str(item['id']), item['text'].split(' ')])
 
         shuffle(self.deck)
-
-    def set_album(self, owner, album):
-        pass
-
 
     def take_cards(self, count):
         cards = []

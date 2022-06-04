@@ -2,15 +2,20 @@ import locale
 import random
 import traceback
 
+import vk_api
+
 import API
 from game import Game
 from player import Player
 
 
 class BotInterface:
-    def __init__(self, api: API, token):
+    def __init__(self, api: API, token, service_token):
         locale.setlocale(locale.LC_ALL, '')
         self.commands = {'старт': self.start_game, 'результаты': self.results}
+
+        vk = vk_api.VkApi(token=service_token)
+        self.service_api = vk.get_api()
 
         self.api = api
         self.admin_id = 375795594
@@ -26,6 +31,9 @@ class BotInterface:
             self.add_player(player_id)
 
         player = self.get_player(player_id)
+
+        if self.try_parse_album(player, command):
+            return
 
         try:
             method = self.commands[command]
@@ -65,7 +73,7 @@ class BotInterface:
 
         self.api.response(t, player.id, self.chat_id, "", False)
 
-    def get_unique_tags(self, tags, data):
+    def get_unique_tags(self, tags):
         map = dict()
 
         for card_tags_ind in range(len(tags)):
@@ -104,25 +112,20 @@ class BotInterface:
 
     def show_cards(self, game):
         cards = game.take_cards(5)
+
         cards_names = []
         cards_tags = []
         for card in cards:
-            card_name, card_tag = card
-            cards_names.append(int(card_name.split(".")[0]))
-            card_tag = card_tag.split(" ")
+            cards_names.append(card[0])
+            cards_tags.append(card[1])
+        random_tags = self.get_unique_tags(cards_tags)
 
-            for i in range(len(card_tag)):
-                card_tag[i] = card_tag[i].replace("\n", "")
-
-            cards_tags.append(card_tag)
-
-        random_tags = self.get_unique_tags(cards_tags, cards_names)
         random_tag = random.choice(random_tags)
 
         game.correct_card = random_tag[1]
         parsed_attach = ""
         for attach in cards_names:
-            parsed_attach += "photo-" + str(self.api.id) + "_" + str(attach + game.pixs_root) + ","
+            parsed_attach += attach + ","
 
         parsed_attach = parsed_attach[:-1]
 
@@ -135,11 +138,16 @@ class BotInterface:
         if args is None and player.game is None:
             return self.show_games()
 
+        if args is None and len(player.game.deck) == 0:
+            self.api.response("Не задан набор для игры.\nПопробуйте: vk.com/album-213713475_284294786", player.id, self.chat_id, "")
+            return None
+
         if args is None and player.game.correct_card is None:
             return self.show_cards(player.game)
 
         if player.game is not None:
-            return "Вы уже в игре."
+            self.api.response("Вы уже в игре.", player.id, self.chat_id, "")
+            return None
 
         if int(args) > len(self.games):
             game = Game(player)
@@ -151,6 +159,26 @@ class BotInterface:
             player.game = self.games[int(args) - 1]
             (self.games[int(args) - 1]).players.append(player)
             self.api.response("Вы присоединились к игре.", player.id, self.chat_id, "", False)
+
+    def try_parse_album(self, player, link):
+        try:
+            parsed_link = (link.split("album")[1]).split("_")
+            owner, album = parsed_link
+
+            album = self.service_api.photos.get(
+                owner_id=int(owner),
+                album_id=int(album),
+            )
+
+            if player.game is None:
+                self.api.response("Сначала создайте игру.", player.id, self.chat_id, "")
+                return True
+
+            player.game.set_album(album['items'])
+            self.api.response("Набор задан.", player.id, self.chat_id, "")
+            return True
+        except:
+            return False
 
     def check_correct(self, player, card):
         card = card[0]
