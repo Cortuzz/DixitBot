@@ -15,7 +15,7 @@ class Bot:
         if not self.debug:
             self.api = VkAPI(self.group_id, self.token)
 
-        self.interface = BotInterface()
+        self.interface = BotInterface(self.api)
         self.handler = self.api.get_handler()
 
     def run(self):
@@ -36,13 +36,14 @@ class Bot:
         command = request[0]
         args = request[1:]
 
-        text, attaches = self.interface.try_command(command, player_id, *args)
-        parsed_attach = ""
-        if attaches:
-            for attach in attaches:
-                parsed_attach += "photo-" + str(self.group_id) + "_" + str(attach + self.cards_bias) + ","
+        answer = self.interface.try_command(chat_id, command, player_id, *args)
+        text, attaches = None, None
 
-            parsed_attach = parsed_attach[:-1]
+        text = answer
+        if len(answer) == 2:
+            text, attaches = answer
+
+
 
         if text is not None:
-            self.api.response(text, player_id, chat_id, parsed_attach)
+            self.api.response(text, player_id, chat_id, attaches)
